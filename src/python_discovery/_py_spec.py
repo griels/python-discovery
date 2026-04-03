@@ -5,7 +5,10 @@ from __future__ import annotations
 import contextlib
 import pathlib
 import re
+import typing
 from typing import Final
+
+import typing_extensions
 
 from ._py_info import normalize_isa
 from ._specifier import SimpleSpecifier, SimpleSpecifierSet, SimpleVersion
@@ -79,7 +82,9 @@ def _parse_spec_pattern(string_spec: str) -> PythonSpec | None:
     machine = groups.get("machine")
     if machine is not None:
         machine = normalize_isa(machine)
-    return PythonSpec(string_spec, impl, major, minor, micro, arch, None, free_threaded=threaded, machine=machine)
+    operating_system = groups.get("operating_system")
+    libc = groups.get("libc")
+    return PythonSpec(string_spec, impl, major, minor, micro, arch, None, free_threaded=threaded, machine=machine, operating_system=operating_system, libc=libc)
 
 
 def _parse_specifier(string_spec: str) -> PythonSpec | None:
@@ -97,8 +102,58 @@ def _parse_specifier(string_spec: str) -> PythonSpec | None:
         impl = None
     return PythonSpec(string_spec, impl, None, None, None, None, None, version_specifier=version_specifier)
 
+class PythonSpecArgs(typing.TypedDict, total=False):
+    free_threaded: bool | None
+    machine: str | None
+    version_specifier: SpecifierSet | None
+    operating_system: str | None
+    libc: str | None
 
-class PythonSpec:
+class BasePythonSpec:
+    """
+    Contains specification about a Python Interpreter.
+
+    :param implementation: interpreter implementation name (e.g. ``"cpython"``, ``"pypy"``), or ``None`` for any.
+    :param major: required major version, or ``None`` for any.
+    :param minor: required minor version, or ``None`` for any.
+    :param micro: required micro (patch) version, or ``None`` for any.
+    :param architecture: required pointer-size bitness (``32`` or ``64``), or ``None`` for any.
+    :param path: filesystem path to a specific interpreter, or ``None``.
+    :param free_threaded: whether a free-threaded build is required, or ``None`` for any.
+    :param machine: required ISA (e.g. ``"arm64"``), or ``None`` for any.
+    :param version_specifier: PEP 440 version constraints, or ``None``.
+    :param operating_system: required operating system (e.g. ``"linux"``, ``"darwin"``), or ``None`` for any.
+    :param libc: required C library (e.g. ``"glibc"``, ``"musl"``), or ``None`` for any.
+    """
+
+    def __init__(  # noqa: PLR0913, PLR0917
+        self,
+        implementation: str | None,
+        major: int | None = None,
+        minor: int | None = None,
+        micro: int | None = None,
+        architecture: int | None = None,
+        path: str | None = None,
+        *,
+        free_threaded: bool | None = None,
+        machine: str | None = None,
+        version_specifier: SpecifierSet | None = None,
+        operating_system: str | None = None,
+        libc: str | None = None,
+    ) -> None:
+        self.implementation = implementation
+        self.major = major
+        self.minor = minor
+        self.micro = micro
+        self.free_threaded = free_threaded
+        self.architecture = architecture
+        self.machine = machine
+        self.path = path
+        self.version_specifier = version_specifier
+        self.operating_system = operating_system
+        self.libc = libc
+
+class PythonSpec(BasePythonSpec):
     """
     Contains specification about a Python Interpreter.
 
@@ -112,6 +167,8 @@ class PythonSpec:
     :param free_threaded: whether a free-threaded build is required, or ``None`` for any.
     :param machine: required ISA (e.g. ``"arm64"``), or ``None`` for any.
     :param version_specifier: PEP 440 version constraints, or ``None``.
+    :param operating_system: required operating system (e.g. ``"linux"``, ``"darwin"``), or ``None`` for any.
+    :param libc: required C library (e.g. ``"glibc"``, ``"musl"``), or ``None`` for any.
     """
 
     def __init__(  # noqa: PLR0913, PLR0917
@@ -123,21 +180,10 @@ class PythonSpec:
         micro: int | None,
         architecture: int | None,
         path: str | None,
-        *,
-        free_threaded: bool | None = None,
-        machine: str | None = None,
-        version_specifier: SpecifierSet | None = None,
+        **kwargs: typing_extensions.Unpack[PythonSpecArgs]
     ) -> None:
+        super().__init__(implementation, major, minor, micro, architecture, path, **kwargs)
         self.str_spec = str_spec
-        self.implementation = implementation
-        self.major = major
-        self.minor = minor
-        self.micro = micro
-        self.free_threaded = free_threaded
-        self.architecture = architecture
-        self.machine = machine
-        self.path = path
-        self.version_specifier = version_specifier
 
     @classmethod
     def from_string_spec(cls, string_spec: str) -> PythonSpec:
@@ -249,11 +295,14 @@ class PythonSpec:
             "path",
             "free_threaded",
             "version_specifier",
+            "operating_system",
+            "libc"
         )
         return f"{name}({', '.join(f'{k}={getattr(self, k)}' for k in params if getattr(self, k) is not None)})"
 
 
 __all__ = [
+    "BasePythonSpec",
     "InvalidSpecifier",
     "InvalidVersion",
     "PythonSpec",
